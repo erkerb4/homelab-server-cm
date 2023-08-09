@@ -15,7 +15,7 @@ UPSCABLE ether
 # You must also specify a DEVICE, sometimes referred to as a port.
 # UPSTYPE   DEVICE           Description
 # snmp      hostname:port:vendor:community
-UPSTYPE snmp
+UPSTYPE {{ ups_type }}
 DEVICE {{ ups_snmp_device }}
 
 #   Interval (in seconds) at which apcupsd polls the UPS for status. This
