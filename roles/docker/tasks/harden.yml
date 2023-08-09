@@ -1,0 +1,46 @@
+---
+- name: User to isolate namespace
+  ansible.builtin.user:
+    name: dockerns
+    shell: /sbin/nologin
+    home: /var/empty
+    comment: service account for docker namespace
+    create_home: no
+    password_lock: true
+    state: present
+
+- name: Create group for the new user
+  ansible.builtin.group:
+    name: dockerns
+    state: present
+    system: yes
+
+- name: Remapping subordinate user
+  ansible.builtin.shell:
+    cmd: "echo dockerns:231072:65536 >> /etc/subuid"
+
+- name: Remapping subordinate group ID
+  ansible.builtin.shell:
+    cmd: "echo dockerns:231072:65536 >> /etc/subgid"
+
+- name: Create directory for docker config
+  ansible.builtin.file:
+    state: directory
+    path: /etc/docker
+
+- name: Update docker configuration
+  ansible.builtin.blockinfile:
+    path: /etc/docker/daemon.json
+    create: yes
+    marker: ""
+    block: |
+            {
+              "userns-remap" : "{{ docker_userns }}",
+              "experimental" : false,
+              "live-restore" : true,
+              "ipv6" : false,
+              "icc" : false,
+              "no-new-privileges" : true,
+              "raw-logs" : false,
+              "oom-score-adjust" : -500
+              }

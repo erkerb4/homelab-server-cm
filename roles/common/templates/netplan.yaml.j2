@@ -1,0 +1,10 @@
+network:
+  ethernets:
+    {{ ansible_facts['default_ipv4']['alias'] }}:
+      dhcp4: false
+      wakeonlan: true
+      addresses: [{{ ansible_facts['default_ipv4']['address'] }}/{{ netmask }}]
+      gateway4: {{ ansible_facts['default_ipv4']['gateway'] }}
+      nameservers:
+       addresses: [{{ ansible_facts['default_ipv4']['gateway'] }}]
+  version: 2

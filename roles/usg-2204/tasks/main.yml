@@ -1,0 +1,53 @@
+---
+# file: roles/usg/tasks/main.yml
+- name: Enable Ubuntu Security Guide
+  ansible.builtin.shell:
+    cmd: pro enable usg --assume-yes
+  ignore_errors: true
+
+- name: Install USG packages
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - usg
+      
+- name: Check for aide DB
+  stat:
+    path: /var/lib/aide/aide.db
+  register: aidedb_stat
+
+- name: Copy Customized CIS Profile - First Run
+  ansible.builtin.template:
+    src: tailor.xml.j2
+    dest: /root/tailor.xml
+  when: not aidedb_stat
+
+- name: Copy Customized CIS Profile - ReRun
+  ansible.builtin.template:
+    src: tailor_rerun.xml.j2
+    dest: /root/tailor.xml
+  when: aidedb_stat
+
+- name: Reboot the system before running USG
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when: aidedb_stat
+
+- name: Run USG fix
+  ansible.builtin.shell:
+    cmd: usg fix --tailoring-file tailor.xml 2>&1 | tee usg-results-{{ '%Y-%m-%d-%H-%M' | strftime }}.log
+    chdir: /root/
+  when: "{{ 'raspi' not in ansible_facts.kernel }}"
+
+- name: Run USG fix - Rpi takes a long time
+  ansible.builtin.shell:
+    cmd: usg fix --tailoring-file tailor.xml 2>&1 | tee usg-results-{{ '%Y-%m-%d-%H-%M' | strftime }}.log
+    chdir: /root/
+  async: 1800
+  poll: 600
+  when: "{{ 'raspi' in ansible_facts.kernel }}"
+
+- name: Reboot the system
+  ansible.builtin.reboot:
+    reboot_timeout: 300

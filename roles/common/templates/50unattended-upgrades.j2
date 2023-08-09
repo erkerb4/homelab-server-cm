@@ -1,0 +1,69 @@
+// Automatically upgrade packages from these (origin:archive) pairs
+//
+// Note that in Ubuntu security updates may pull in new dependencies
+// from non-security sources (e.g. chromium). By allowing the release
+// pocket these get automatically pulled in.
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}";
+        "${distro_id}:${distro_codename}-security";
+        // Extended Security Maintenance; doesn't necessarily exist for
+        // every release and this system may not have it installed, but if
+        // available, the policy for updates is such that unattended-upgrades
+        // should also install from here by default.
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+//      "${distro_id}:${distro_codename}-updates";
+//      "${distro_id}:${distro_codename}-proposed";
+//      "${distro_id}:${distro_codename}-backports";
+};
+
+// Python regular expressions, matching packages to exclude from upgrading
+Unattended-Upgrade::Package-Blacklist {
+kubeadm;
+kubectl;
+kubelet;
+containerd;
+cri-tools;
+runc;
+kubernetes-cni;
+docker;
+};
+
+// This option controls whether the development release of Ubuntu will be
+// upgraded automatically. Valid values are "true", "false", and "auto".
+Unattended-Upgrade::DevRelease "false";
+
+// This option allows you to control if on a unclean dpkg exit
+// unattended-upgrades will automatically run
+//   dpkg --force-confold --configure -a
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+
+// Install all updates when the machine is shutting down
+// instead of doing it in the background while the machine is running.
+// This will (obviously) make shutdown slower.
+// Unattended-upgrades increases logind's InhibitDelayMaxSec to 30s.
+// This allows more time for unattended-upgrades to shut down gracefully
+// or even install a few packages in InstallOnShutdown mode, but is still a
+// big step back from the 30 minutes allowed for InstallOnShutdown previously.
+// Users enabling InstallOnShutdown mode are advised to increase
+// InhibitDelayMaxSec even further, possibly to 30 minutes.
+//Unattended-Upgrade::InstallOnShutdown "false";
+
+// Remove unused automatically installed kernel-related packages
+// (kernel images, kernel headers and kernel version locked tools).
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+// Do automatic removal of newly unused dependencies after the upgrade
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+
+// Do automatic removal of unused packages after the upgrade
+// (equivalent to apt-get autoremove)
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Automatically reboot *WITHOUT CONFIRMATION* if
+//  the file /var/run/reboot-required is found after the upgrade
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// Download and install upgrades only on AC power
+// (i.e. skip or gracefully stop updates on battery)
+Unattended-Upgrade::OnlyOnACPower "true";

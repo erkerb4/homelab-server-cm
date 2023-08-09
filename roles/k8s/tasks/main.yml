@@ -1,0 +1,87 @@
+---
+# file: roles/k8s/tasks/main.yml
+- name: Add the modules needed for k8s and make sure it is loaded after reboots
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  with_items:
+  - br_netfilter
+  - overlay
+
+- name: Install pre-req Packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: latest
+    update_cache: yes
+  with_items:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - nfs-common
+
+- name: Packages needed by Cilium in Ubuntu 22.04
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - linux-modules-extra-raspi
+  when: "{{ 'raspi' in ansible_facts.kernel }}"
+
+- name: Add Kubernetes GPG apt Key
+  ansible.builtin.apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    keyring: /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+    state: present
+
+- name: Add Kubernetes Repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main"
+    state: present
+
+- name: Install Kubernetes Packages
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+    - containerd
+    - kubelet={{ k8s_version }}-00
+    - kubeadm={{ k8s_version }}-00
+    - kubectl={{ k8s_version }}-00
+
+- name: Copy crictl
+  ansible.builtin.template:
+    src: crictl.yaml.j2
+    dest: /etc/crictl.yaml
+
+- name: Initialize containerd config
+  ansible.builtin.shell:
+    cmd: |
+      mkdir /etc/containerd
+      containerd config default | sudo tee /etc/containerd/config.toml
+      sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+
+- name: Add Kubectl completion
+  ansible.builtin.shell:
+    cmd: |
+      echo 'source <(kubectl completion bash)' >> /home/{{ user }}/.bashrc
+      echo 'alias k=kubectl' >> /home/{{ user }}/.bashrc
+      echo 'complete -o default -F __start_kubectl k' >> /home/{{ user }}/.bashrc
+  become: true
+
+- name: Configure set of Kubernetes sysctls
+  ansible.builtin.template:
+    src: "{{ item.tmp }}"
+    dest: "/etc/sysctl.d/{{ item.file }}"
+  with_items:
+  - { tmp: 'sysctl-k8s.conf', file: '20-k8s.conf' }
+  - { tmp: 'sysctl-k8s-extras.conf', file: '21-k8s-extras.conf' }
+
+- name: Reboot the system
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+
+- name: Join worker node to cluster
+  ansible.builtin.include_tasks:
+    file: ubuntu-init.yml
+  when: k8s_join_cluster

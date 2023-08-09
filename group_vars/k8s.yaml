@@ -1,0 +1,3 @@
+---
+# file: group_vars/k8s.yaml
+k8s_version: 1.26.7

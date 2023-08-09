@@ -1,0 +1,52 @@
+---
+# file: roles/k8s_maintenance/tasks/return_node.yml
+- name: Wait until node is ready but not scheduling to return
+  ansible.builtin.shell:
+    cmd: kubectl get nodes | grep {{ inventory_hostname }}
+  delegate_to: localhost
+  become: false
+  register: host_status_post
+  until: "'SchedulingDisabled' in host_status_post.stdout"
+  retries: 6
+  delay: 10
+
+- name: Return the node
+  ansible.builtin.shell:
+    cmd: kubectl uncordon "{{ inventory_hostname }}"
+  delegate_to: localhost
+  become: false
+  when: "'SchedulingDisabled' in host_status_post.stdout"
+
+- name: Wait until node is ready
+  ansible.builtin.shell:
+    cmd: kubectl get nodes | grep {{ inventory_hostname }}
+  delegate_to: localhost
+  become: false
+  register: host_status_post_second
+  until: "'Not' not in host_status_post_second.stdout"
+  retries: 30
+  delay: 60
+
+- debug:
+    var: host_status_post_second
+
+- name: Wait until ceph cluster is ready
+  ansible.builtin.shell:
+    cmd: kubectl --namespace rook-ceph exec $(kubectl get pods --namespace rook-ceph -l app=rook-ceph-tools -o name) -- ceph health
+  delegate_to: localhost
+  become: false
+  register: ceph_health_stat_post
+  until: "'HEALTH_OK' in ceph_health_stat_post.stdout"
+  retries: 45
+  delay: 180
+  when: ceph_health_check
+
+- block:
+  - name: End play if storage cluster is not healthy
+    debug:
+      msg: "Health of ceph cluster is NOT OK. Please verify the health of the cluster. Play will not continue"
+
+  - meta: end_play
+    when:
+      - ceph_health_check == true
+      - "'HEALTH_OK' not in ceph_health_stat_post.stdout"

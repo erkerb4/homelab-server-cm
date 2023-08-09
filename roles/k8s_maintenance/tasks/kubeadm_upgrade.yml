@@ -1,0 +1,62 @@
+---
+# file: roles/k8s_maintenance/tasks/kubeadm_upgrade.yml
+- name: Unhold kubeadm package
+  ansible.builtin.shell:
+    cmd: apt-mark unhold kubeadm
+  when: k8s_upgrade
+
+- name: Purge cache, and run autoclean
+  ansible.builtin.apt:
+    autoclean: yes
+    autoremove: yes
+
+- name: Upgrade kubeadm package
+  ansible.builtin.apt:
+    name: kubeadm={{ k8s_release }}-00
+  when: k8s_upgrade
+
+- name: Pre-pull kubernetes images
+  ansible.builtin.shell:
+    cmd: kubeadm config images pull --kubernetes-version v{{ k8s_release }}
+  when: k8s_cp_node
+  register: kubeadm_pull
+  until: kubeadm_pull.rc == 0
+  ignore_errors: true
+
+# - name: Run Upgrade plan
+#   ansible.builtin.shell:
+#     cmd: kubeadm upgrade plan
+#   register: kubeadm_upgradeplan_check
+#   when:
+#     - "'control-plane' in k8srole"
+
+- name: Perform the upgrade if control plane is ready
+  ansible.builtin.shell:
+    cmd: |
+      timeout -k 600s 600s
+      kubeadm upgrade apply v{{ k8s_release }} --yes --certificate-renewal=true 2>&1 | tee /root/kubeadm_upgrade_{{k8s_release}}.log
+  when: k8s_cp_node
+    # - "'You can now apply the upgrade' in kubeadm_upgradeplan_check.stdout"
+  ignore_errors: true
+  register: kubeadm_upgrade
+  until: kubeadm_upgrade.rc == 0
+
+- name: Upgrade kubeadm on worker nodes
+  ansible.builtin.shell:
+    cmd: kubeadm upgrade node
+  when: not k8s_cp_node
+  register: kubeadm_upgrade
+
+- name: Verbose out for kubeadm upgrade
+  debug:
+    var: kubeadm_upgrade
+  ignore_errors: true
+
+# - name: Remove kube-proxy components
+#   ansible.builtin.shell:
+#     cmd: |
+#       timeout -k 90s 90s
+#       kubectl delete ds kube-proxy -n kube-system
+#   when: k8s_cp_node
+#   ignore_errors: true
+#   delegate_to: localhost

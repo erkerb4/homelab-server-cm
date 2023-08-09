@@ -1,0 +1,179 @@
+---
+# file: roles/common/tasks/main.yml
+- name: Update user information
+  ansible.builtin.user:
+    name: "{{ user }}"
+    expires: -1
+
+- name: Disable ubuntu account
+  ansible.builtin.user:
+    name: ubuntu
+    expires: 1687738230
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+  when: "{{ 'raspi' in ansible_facts.kernel }}"
+
+- name: Create a directory if it does not exist
+  ansible.builtin.file:
+    path: "/home/{{ user }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ user }}"
+    group: "{{ user }}"
+
+- name: Copy the public key
+  ansible.builtin.template:
+    src: user_key.pub.j2
+    dest: "/home/{{ user }}/.ssh/id_ed25519.pub"
+    owner: "{{ user }}"
+    group: "{{ user }}"
+    mode: '0600'
+
+- name: Set authorized key 
+  ansible.posix.authorized_key:
+    user: "{{ user }}"
+    state: present
+    key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_ed25519.pub') }}"
+
+- name: Configure sudoers for the main user
+  community.general.sudoers:
+    name: "{{ user }}"
+    state: present
+    user: "{{ user }}"
+    commands: ALL
+
+- name: Change TimeZone
+  ansible.builtin.shell:
+    cmd: timedatectl set-timezone {{ tz }}
+
+- name: Remove common netplan configuration
+  ansible.builtin.file:
+    path: "/etc/netplan/{{ item }}"
+    state: absent
+  with_items:
+    - 50-cloud-init.yaml
+    - 00-installer-config.yaml
+  ignore_errors: true
+
+- name: Configure netplan for given system
+  ansible.builtin.template:
+    src: netplan.yaml.j2
+    dest: /etc/netplan/00-net-config.yaml
+
+- name: Apply netplan changes
+  ansible.builtin.shell:
+    cmd: netplan apply
+  ignore_errors: true
+
+- name: Install packages needed for Ubuntu Pro
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - ubuntu-advantage-tools
+  when: pro
+
+- name: Attach Ubuntu Pro Subscription
+  ansible.builtin.shell:
+    cmd: pro attach {{ ubuntu_pro_token }}
+  when: pro
+  ignore_errors: true
+
+- name: Enable realtime-kernel
+  ansible.builtin.shell:
+    cmd: "pro enable realtime-kernel --assume-yes"
+  when: pro_realtime_kernel
+
+- name: Reboot the system for realtime-kernel
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when: pro_realtime_kernel
+
+- name: Install apcupsd for UPS
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - apcupsd
+
+- name: Configure apcupsd for given system
+  ansible.builtin.template:
+    src: apcupsd.conf.j2
+    dest: /etc/apcupsd/apcupsd.conf
+
+- name: Configure apcupsd for given system
+  ansible.builtin.template:
+    src: apcupsd.j2
+    dest: /etc/default/apcupsd
+
+- name: Enable and start apcupsd service
+  ansible.builtin.systemd:
+    state: restarted
+    enabled: true
+    name: apcupsd
+
+- name: Remove sftp line
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    state: absent
+    regexp: '^Subsystem'
+
+- name: Copy additional sshd configuration
+  ansible.builtin.template:
+    src: 01-mozilla-sshd.conf.j2
+    dest: /etc/ssh/sshd_config.d/01-mozilla-sshd.conf
+
+- name: Enable and start apcupsd service
+  ansible.builtin.systemd:
+    state: restarted
+    enabled: true
+    name: sshd
+
+- name: Install required tools
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - lm-sensors
+      - sysstat
+      - bashtop
+      - vim
+      - nvme-cli
+      - dmidecode
+      - rsyslog
+      - lsof
+
+- name: Add modules for temperature detection
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  with_items:
+  - drivetemp
+  - nct6775_core
+
+- name: Automatic update configuration
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+
+- name: Update OS
+  ansible.builtin.apt:
+    name: "*"
+    state: latest
+    update_cache: yes
+
+- name: Remove Cache and unused packages
+  ansible.builtin.apt:
+    autoclean: yes
+    autoremove: yes
+
+- name: Check for a reboot hint
+  stat:
+    path: /var/run/reboot-required
+  register: reboot_hint
+
+- name: Reboot the system
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when: reboot_hint

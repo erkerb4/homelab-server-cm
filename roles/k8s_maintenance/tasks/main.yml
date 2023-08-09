@@ -1,0 +1,115 @@
+---
+# file: roles/k8s_maintenance/tasks/main.yml
+- name: Add/Update Google Public Key
+  ansible.builtin.apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    state: present
+
+- name: Remove older Repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+    state: absent
+    filename: kubernetes.list
+
+- name: Add/Update K8S Repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main"
+    state: present
+    filename: kubernetes
+    update_cache: true
+
+- name: Check health of ceph cluster
+  ansible.builtin.shell:
+    cmd: kubectl --namespace rook-ceph exec $(kubectl get pods --namespace rook-ceph -l app=rook-ceph-tools -o name) -- ceph health
+  delegate_to: localhost
+  register: ceph_health_stat_pre
+  when: ceph_health_check
+  become: false
+
+- debug:
+    var: ceph_health_stat_pre
+
+- block:
+  - name: End play if storage cluster is not healthy
+    debug:
+      msg: "If play ends, that means health of ceph cluster is NOT OK. Please verify the health of the cluster."
+
+  - meta: end_play
+    when:
+      - ceph_health_check
+      - "'HEALTH_OK' not in ceph_health_stat_pre.stdout"
+
+- name: Kubeadm Upgrade tasks
+  ansible.builtin.include_tasks:
+    file: kubeadm_upgrade.yml
+  when: k8s_upgrade
+
+- name: Drain the node
+  ansible.builtin.shell:
+    cmd: kubectl drain "{{ inventory_hostname }}" --delete-local-data --ignore-daemonsets --grace-period=20 --force
+  delegate_to: localhost
+  become: false
+
+- name: Update Kubelet and Kubectl
+  ansible.builtin.include_tasks:
+    file: kubeX_upgrade.yml
+  when: k8s_upgrade
+
+- name: Hold K8s package upgrades
+  ansible.builtin.shell:
+    cmd: apt-mark hold {{ item }}
+  with_items:
+  - kubeadm
+  - kubelet
+  - kubectl
+  - containerd
+  - kubernetes-cni
+
+- name: Purge cache, and run autoclean
+  ansible.builtin.apt:
+    autoclean: yes
+    autoremove: yes
+
+- name: Update all packages to their latest version
+  ansible.builtin.apt:
+    name: "*"
+    state: latest
+    update_cache: yes
+
+- name: Reboot system if required
+  ansible.builtin.shell:
+    cmd: shutdown -r now 'Rebooting to complete system upgrade'
+  async: 15
+  poll: 30
+  ignore_errors: true
+  # args:
+  #   removes: /var/run/reboot-required
+
+- name: Wait for system to become reachable
+  wait_for_connection:
+
+- name: Sync time
+  ansible.builtin.shell:
+    cmd: chronyc -c makestep
+
+- name: Check for apt lock
+  ansible.builtin.shell:
+    cmd: lsof /var/lib/dpkg/lock
+  register: host_apt_status_1
+  failed_when: 'host_apt_status_1.rc == 0 or host_apt_status_1.rc >= 2'
+  retries: 30
+  delay: 30
+
+- name: Wait until node is ready but not scheduling
+  ansible.builtin.shell:
+    cmd: kubectl get nodes | grep {{ inventory_hostname }}
+  delegate_to: localhost
+  become: false
+  register: host_status_post
+  until: "'SchedulingDisabled' in host_status_post.stdout"
+  retries: 30
+  delay: 60
+
+- name: prune container images
+  ansible.builtin.shell:
+    cmd: sudo crictl rmi --prune

@@ -1,0 +1,7 @@
+collections/
+roles/common/vars/main.yml
+roles/docker/vars/main.yml
+roles/k8s/vars/main.yml
+group_vars/all.yaml
+host_vars/*.yml
+hosts

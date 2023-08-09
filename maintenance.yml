@@ -1,0 +1,17 @@
+---
+- hosts: k8s
+  become: true
+  serial: 1
+  tasks:
+  - ansible.builtin.import_role:
+      name: k8s_maintenance
+    vars:
+      ceph_health_check: yes
+      k8s_upgrade: yes
+      k8s_release: 1.26.7
+  - ansible.builtin.import_role:
+      name: usg-2204
+    when: ansible_facts['distribution_version'] == "22.04"
+  - ansible.builtin.import_role:
+      name: k8s_maintenance
+      tasks_from: return_node.yml

@@ -1,0 +1,48 @@
+---
+# file: roles/k8s_maintenance/tasks/kubeX_upgrade.yml
+- name: Unhold kubectl and kubelet package
+  ansible.builtin.shell:
+    cmd: apt-mark unhold {{ item }}
+  with_items:
+  - kubelet
+  - kubectl
+  - containerd
+  ignore_errors: true
+
+- name: Upgrade kubectl and kubelet
+  ansible.builtin.apt:
+    name: "{{ item }}"
+  with_items:
+    - kubectl={{ k8s_release }}-00
+    - kubelet={{ k8s_release }}-00
+    - containerd
+    - kubernetes-cni
+
+- ansible.builtin.systemd:
+    daemon_reload: yes
+  become: true
+
+- name: Ensure containerd service is running
+  ansible.builtin.systemd:
+    name: containerd
+    state: started
+    enabled: yes
+
+- name: Restart kubelet service
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    enabled: yes
+
+- name: Wait until node is ready but not scheduling after upgrade
+  ansible.builtin.shell:
+    cmd: kubectl get nodes | grep {{ inventory_hostname }}
+  delegate_to: localhost
+  become: false
+  register: host_status_post_first
+  until: "'SchedulingDisabled' in host_status_post_first.stdout"
+  retries: 30
+  delay: 60
+
+- debug:
+    var: host_status_post_first

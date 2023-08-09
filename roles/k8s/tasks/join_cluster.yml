@@ -1,0 +1,21 @@
+---
+# file: roles/k8s/tasks/join_cluster.yml
+- name: Retrieve Join Command
+  ansible.builtin.shell:
+    cmd: kubeadm token create --print-join-command
+  register: join_command_raw
+  when: k8s_cp_node
+
+- name: Generate Certificate key for Control-Plane nodes
+  ansible.builtin.shell:
+    cmd: kubeadm certs certificate-key
+  register: certificate_key
+  when: k8s_cp_node
+
+- name: Set facts for genearting join command
+  ansible.builtin.shell:
+    cmd: "{{ join_command_raw }} {{ certificate_key }} >> node_joined.txt"
+  args:
+    chdir: /home/"{{ user }}"
+    creates: node_joined.txt
+  when: ( not k8s_node ) and k8s_join_cluster

@@ -1,0 +1,5 @@
+---
+# file: roles/k8s_maintenance/vars/main.yml
+ceph_health_check: true
+k8s_upgrade:
+k8s_release:

@@ -1,0 +1,91 @@
+---
+# file: roles/docker/tasks/main.yml
+- name: Uninstall older docker packages
+  ansible.builtin.apt:
+    pkg:
+      - docker
+      - docker-engine
+      - docker.io
+      - containerd 
+      - runc
+      - docker-compose
+      - docker-doc
+      - podman-docker
+    state: absent
+    purge: yes
+
+- name: Install required system packages
+  ansible.builtin.apt:
+    state: latest
+    update_cache: yes
+    pkg:
+      - ca-certificates
+      - curl
+      - gnupg
+
+- name: Add Docker GPG apt Key
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker Repository
+  ansible.builtin.apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+    state: present
+
+- name: Update apt and install docker-ce
+  ansible.builtin.apt:
+    update_cache: yes
+    pkg:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin 
+      - docker-compose-plugin
+    state: latest
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ user }}"
+    groups: docker
+
+- name: Hardened tasks
+  ansible.builtin.include_tasks:
+    file: harden.yml
+  when: docker_hardened
+
+- name: Create directory for docker config
+  ansible.builtin.file:
+    state: directory
+    path: /etc/docker
+
+- name: Update docker configuration
+  ansible.builtin.blockinfile:
+    path: /etc/docker/daemon.json
+    create: yes
+    marker: ""
+    block: |
+      {
+        "experimental" : false,
+        "live-restore" : true,
+        "ipv6" : false,
+        "icc" : false,
+        "no-new-privileges" : true,
+        "raw-logs" : false
+      }
+
+- name: Set unpriv port range to start from 80
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_unprivileged_port_start
+    value: '80'
+    sysctl_set: true
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/11-docker.conf
+
+- name: Start and Enable Docker Service
+  ansible.builtin.systemd:
+    name: docker.service
+    state: started
+    daemon_reload: yes
+    enabled: yes

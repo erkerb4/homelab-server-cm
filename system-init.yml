@@ -1,0 +1,26 @@
+---
+# file: core-config.yml
+- hosts: all
+  become: true
+  roles:
+    - role: common
+
+- hosts: docker
+  become: true
+  roles:
+    - role: docker
+    - role: usg-2204
+      when: 
+      - ansible_facts['distribution_version'] == "22.04"
+      - pro
+      - pro_usg
+
+- hosts: k8s
+  become: true
+  roles:
+    - role: k8s
+    - role: usg-2204
+      when: 
+      - ansible_facts['distribution_version'] == "22.04"
+      - pro
+      - pro_usg
